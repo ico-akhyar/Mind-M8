@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "315059113769",
+    "project_id": "mindm8-d33ec",
+    "storage_bucket": "mindm8-d33ec.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:315059113769:android:faef7d745c174c83e63138",
+        "android_client_info": {
+          "package_name": "com.oryvo.mindm8"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "315059113769-3qv8jqmba5qavn8b4s8b1bnuejmdigg9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBSyanS75daBV0ApEDgxxhtXY5uWym0-Ow"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "315059113769-3qv8jqmba5qavn8b4s8b1bnuejmdigg9.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
