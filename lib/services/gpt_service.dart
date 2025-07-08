@@ -341,11 +341,12 @@ Respond ONLY with the message or [NOACTION]. Nothing else.
         data: {
           'model': _model,
           'messages': messages,
-          'temperature': 0.7,
+          'temperature': 0.8,
           'max_tokens': 150,
         },
       );
 
+      print(messages);
       if (response.statusCode != 200) {
         throw Exception('API returned ${response.statusCode}');
       }
@@ -469,12 +470,12 @@ Message: "$message"
           //    - Fast path failed OR
           //    - Extracted empty string
           // if (content == null || content.isEmpty) {
-            try {
-              final jsonData = json.decode(chunk.substring(5));
-              content = jsonData['choices']?[0]?['delta']?['content'];
-            } catch (e) {
-              print('❌ Fallback path error: $e');
-            }
+          try {
+            final jsonData = json.decode(chunk.substring(5));
+            content = jsonData['choices']?[0]?['delta']?['content'];
+          } catch (e) {
+            print('❌ Fallback path error: $e');
+          }
 
 
           // 3. Yield only if content is non-empty
@@ -492,6 +493,62 @@ Message: "$message"
       yield "I'm experiencing technical difficulties. Please try again later.";
     } finally {
       stopwatch.stop();
+    }
+  }
+
+  // Add these getters to your GPTService class
+  String? get cachedPersonalizationString => _cachedPersonalizationString;
+  String? get cachedPersonalDetails => _cachedPersonalDetails;
+
+
+  // In GPTService class - this should already exist
+  Stream<String> getRoastStream({
+    required String prompt,
+  }) async* {
+    try {
+      final response = await _dio.post(
+        'https://api.openai.com/v1/chat/completions',
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $_apiKey',
+            'Content-Type': 'application/json',
+          },
+          responseType: ResponseType.stream,
+        ),
+        data: {
+          'model': _model,
+          'messages': [{
+            'role': 'user',
+            'content': prompt,
+          }],
+          'temperature': 0.9, // Higher temp for roast mode
+          'max_tokens': 150,
+          'stream': true,
+        },
+      );
+
+      final stream = (response.data as ResponseBody).stream;
+      final lines = stream
+          .transform(StreamTransformer.fromBind(utf8.decoder.bind))
+          .transform(const LineSplitter());
+
+      await for (final chunk in lines) {
+        if (chunk.startsWith('data:') && !chunk.contains('[DONE]')) {
+          String? content;
+          try {
+            final jsonData = json.decode(chunk.substring(5));
+            content = jsonData['choices']?[0]?['delta']?['content'];
+          } catch (e) {
+            print('Error parsing chunk: $e');
+          }
+
+          if (content != null && content.isNotEmpty) {
+            yield content;
+          }
+        }
+      }
+    } catch (e) {
+      yield "My roast game is weak today... try again later 😅";
     }
   }
 }

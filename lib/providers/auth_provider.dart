@@ -133,7 +133,7 @@ class AuthNotifier extends StateNotifier<User?> {
       case 'requires-recent-login':
         return 'Session expired. Please log in again';
       default:
-        return 'An error occurred: ${e.message}';
+        return 'Incorrect credentials: ${e.message}';
     }
   }
 }

@@ -5,17 +5,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/journal_provider.dart';
 import 'package:clipboard/clipboard.dart';
 import '../providers/auth_provider.dart';
+import '../providers/roast_provider.dart';
 
 class MessageBubble extends ConsumerWidget {
   final ChatMessage message;
   final bool isPremium;
   final bool isStreaming;
+  final bool isRoastMode;
 
   const MessageBubble({
     super.key,
     required this.message,
     required this.isPremium,
     this.isStreaming = false,
+    this.isRoastMode = false,
   });
 
   void _showMessageOptions(BuildContext context, WidgetRef ref) {
@@ -158,7 +161,7 @@ class MessageBubble extends ConsumerWidget {
             ),
           ),
           content: Text(
-            'This will delete both your message and the corresponding User/M8 message. Continue?',
+            'Are you sure you want to delete this message?',
             style: TextStyle(
               color: isDarkMode ? Colors.white70 : Colors.black87,
             ),
@@ -177,7 +180,13 @@ class MessageBubble extends ConsumerWidget {
               onPressed: () async {
                 Navigator.pop(context);
                 try {
-                  await ref.read(chatProvider.notifier).deleteMessage(message.id!, userId);
+                  if (isRoastMode) {
+                    // Delete from roast messages
+                    await ref.read(roastProvider.notifier).deleteMessage(message.id!, userId);
+                  } else {
+                    // Delete from normal chat messages
+                    await ref.read(chatProvider.notifier).deleteMessage(message.id!, userId);
+                  }
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: const Text('Message deleted'),
@@ -222,14 +231,35 @@ class MessageBubble extends ConsumerWidget {
     final theme = Theme.of(context);
     final isDarkMode = theme.brightness == Brightness.dark;
 
-    // Theme-based colors for AI messages
-    final aiBubbleColor = isDarkMode
-        ? const Color(0xFF5D4BBD)  // Darker purple for dark mode
-        : const Color(0xFF9688FF); // Original purple for light mode
+    // Get bubble colors
+    Color bubbleColor;
+    Color textColor;
 
-    final aiTextColor = isDarkMode
-        ? Colors.white  // White text in dark mode
-        : Colors.black; // Black text in light mode
+    if (isRoastMode) {
+      // 🔥 Roast Mode
+      if (isUser) {
+        bubbleColor = isDarkMode
+            ? const Color(0xFFFB845D).withOpacity(0.9) // Spicy orange for user
+            : const Color(0xFFFFAB91); // Softer orange in light
+        textColor = isDarkMode ? Colors.black : const Color(0xFF1A0000); // readable
+      } else {
+        bubbleColor = isDarkMode
+            ? const Color(0xFFD84315) // Roast AI reply dark
+            : const Color(0xFFFF5722); // Roast AI reply light
+        textColor = Colors.white;
+      }
+    } else {
+      // Regular mode colors
+      if (isUser) {
+        bubbleColor = theme.colorScheme.primary.withOpacity(0.1);
+        textColor = theme.colorScheme.onSurface;
+      } else {
+        bubbleColor = isDarkMode
+            ? const Color(0xFF5D4BBD)  // Darker purple for dark mode
+            : const Color(0xFF9688FF); // Original purple for light mode
+        textColor = isDarkMode ? Colors.white : Colors.black;
+      }
+    }
 
     return GestureDetector(
       onLongPress: () => _showMessageOptions(context, ref),
@@ -247,9 +277,7 @@ class MessageBubble extends ConsumerWidget {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: isUser
-                      ? theme.colorScheme.primary.withOpacity(0.1)
-                      : aiBubbleColor,
+                  color: bubbleColor,
                   borderRadius: BorderRadius.only(
                     topLeft: const Radius.circular(12),
                     topRight: const Radius.circular(12),
@@ -272,7 +300,7 @@ class MessageBubble extends ConsumerWidget {
                           height: 12,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: aiTextColor,
+                            color: textColor,
                           ),
                         ),
                       ),
@@ -280,9 +308,7 @@ class MessageBubble extends ConsumerWidget {
                       child: Text(
                         message.content,
                         style: TextStyle(
-                          color: isUser
-                              ? theme.colorScheme.onSurface
-                              : aiTextColor,
+                          color: textColor,
                         ),
                       ),
                     ),

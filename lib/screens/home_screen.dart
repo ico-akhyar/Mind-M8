@@ -10,7 +10,6 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/time_service.dart';
 import 'dart:async';
-import '../models/journal_entry.dart';
 import '../providers/proactive_provider.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -34,6 +33,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   DateTime? _lastResetDate;
   bool _isLoadingMore = false;
 
+  // Replace the _setupRefreshListener with this in your home_screen.dart
   @override
   void initState() {
     super.initState();
@@ -72,11 +72,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     final lastReset = lastResetTs?.toDate();
     final count = data['dailyMessageCount'] ?? 0;
 
-    if (mounted) {
-      setState(() {
-        _dailyMessageCount = (lastReset == null || lastReset.isBefore(todayMidnight)) ? 0 : count;
-        _lastResetDate = lastReset;
+    // Check if it's a new day and reset if needed
+    if (lastReset == null || lastReset.isBefore(todayMidnight)) {
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+        'lastMessageCountReset': FieldValue.serverTimestamp(),
+        'dailyMessageCount': 0,
       });
+
+      if (mounted) {
+        setState(() {
+          _dailyMessageCount = 0;
+          _lastResetDate = DateTime.now();
+        });
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          _dailyMessageCount = count;
+          _lastResetDate = lastReset;
+        });
+      }
     }
   }
 
@@ -144,6 +159,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       await _syncMessages();
     }
   }
+
 
   Future<void> _syncMessages() async {
     if (_isLoading) return;
@@ -347,7 +363,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
             ),
         ],
       ),
-      drawer: const AppDrawer(),
+      drawer: AppDrawer(onSettingsClosed: _syncMessages),
       body: Column(
         children: [
           Expanded(

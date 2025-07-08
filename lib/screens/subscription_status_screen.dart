@@ -103,14 +103,14 @@ class SubscriptionStatusScreen extends ConsumerWidget {
               : 'N/A',
           ),
           const Divider(height: 30),
-          _buildStatusItem(
-          context,
-          icon: Icons.access_time,
-          label: 'Days Remaining',
-          value: premiumExpiry != null
-          ? '${premiumExpiry.toDate().difference(DateTime.now()).inDays} days'
-              : 'N/A',
-          ),
+                  _buildStatusItem(
+                    context,
+                    icon: Icons.access_time,
+                    label: 'Time Remaining',
+                    value: premiumExpiry != null
+                        ? _formatRemainingTime(premiumExpiry.toDate())
+                        : 'N/A',
+                  ),
           ] else ...[
           Text(
           'Upgrade to unlock premium features',
@@ -219,6 +219,27 @@ class SubscriptionStatusScreen extends ConsumerWidget {
         },
       ),
     );
+  }
+
+  // Add this new helper method to the class:
+  String _formatRemainingTime(DateTime expiryDate) {
+    final now = DateTime.now();
+    if (expiryDate.isBefore(now)) return 'Expired';
+
+    final difference = expiryDate.difference(now);
+    final days = difference.inDays;
+    final hours = difference.inHours.remainder(24);
+
+    if (days > 0 && hours > 0) {
+      return '$days days $hours hours';
+    } else if (days > 0) {
+      return '$days days';
+    } else if (hours > 0) {
+      return '$hours hours';
+    } else {
+      final minutes = difference.inMinutes.remainder(60);
+      return '$minutes minutes';
+    }
   }
 
   Widget _buildStatusItem(

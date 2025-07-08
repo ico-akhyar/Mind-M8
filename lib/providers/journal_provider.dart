@@ -210,7 +210,12 @@ class ChatNotifier extends StateNotifier<List<ChatMessage>> {
       final lastReset = lastResetTs?.toDate();
       final count = userData['dailyMessageCount'] ?? 0;
 
+      // If it's a new day, update the document and return 0 count
       if (lastReset == null || lastReset.isBefore(startOfDay)) {
+        await _firestore.collection('users').doc(userId).update({
+          'lastMessageCountReset': FieldValue.serverTimestamp(),
+          'dailyMessageCount': 0,
+        });
         return MessageLimitInfo(0, isPremium ? 50 : 10);
       }
 
@@ -218,37 +223,6 @@ class ChatNotifier extends StateNotifier<List<ChatMessage>> {
     } catch (e) {
       print('Error getting message count: $e');
       return MessageLimitInfo(0, isPremium ? 50 : 10);
-    }
-  }
-
-  Future<void> _updateDailyMessageCount(String userId) async {
-    final userRef = _firestore.collection('users').doc(userId);
-    final userSnap = await userRef.get();
-
-    final now = await getServerTimeReference();
-    final todayMidnight = DateTime(now.year, now.month, now.day);
-
-    if (!userSnap.exists || !userSnap.data()!.containsKey('dailyMessageCount')) {
-      await userRef.set({
-        'dailyMessageCount': 1,
-        'lastMessageCountReset': now,
-      }, SetOptions(merge: true));
-      return;
-    }
-
-    final data = userSnap.data()!;
-    final Timestamp? lastResetTs = data['lastMessageCountReset'];
-    final DateTime? lastReset = lastResetTs?.toDate();
-
-    if (lastReset == null || lastReset.isBefore(todayMidnight)) {
-      await userRef.update({
-        'dailyMessageCount': 1,
-        'lastMessageCountReset': now,
-      });
-    } else {
-      await userRef.update({
-        'dailyMessageCount': FieldValue.increment(1),
-      });
     }
   }
 

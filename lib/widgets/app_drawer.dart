@@ -6,15 +6,17 @@ import '../screens/notifications_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/premium_plans_screen.dart';
 import '../screens/coming_soon_screen.dart';
-import '../screens/feedback_screen.dart';
+import '../screens/roast_screen.dart';
 import '../screens/subscription_status_screen.dart';
 
 
 class AppDrawer extends ConsumerStatefulWidget {
-  const AppDrawer({super.key});
+  final Future<void> Function()? onSettingsClosed;
+
+  const AppDrawer({super.key, this.onSettingsClosed});
 
   @override
-  ConsumerState<AppDrawer> createState() => _AppDrawerState();
+  ConsumerState<AppDrawer> createState() => _AppDrawerState(); // 👈 Ye line theek rakhni hy
 }
 
 class _AppDrawerState extends ConsumerState<AppDrawer> {
@@ -210,6 +212,22 @@ class _AppDrawerState extends ConsumerState<AppDrawer> {
                         ),
                         _buildMenuItem(
                           context,
+                          index: 5,
+                          icon: FeatherIcons.alertTriangle,
+                          title: 'Roast Mode',
+                          onTap: () {
+                            Navigator.pop(context);
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                const RoastScreen(),
+                              ),
+                            );
+                          },
+                        ),
+                        _buildMenuItem(
+                          context,
                           index: 2, // Make sure this index is unique
                           icon: FeatherIcons.barChart2,
                           title: 'Subscription Status',
@@ -254,39 +272,22 @@ class _AppDrawerState extends ConsumerState<AppDrawer> {
                   SliverPadding(
                     padding: const EdgeInsets.only(bottom: 16),
                     sliver: SliverList(
-                      delegate: SliverChildListDelegate([
-                        _buildMenuItem(
-                          context,
-                          index: 4,
-                          icon: FeatherIcons.settings,
-                          title: 'Settings',
-                          onTap: () {
-                            Navigator.pop(context);
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) =>
-                                const SettingsScreen(),
-                              ),
-                            );
-                          },
+                    delegate: SliverChildListDelegate([
+                    _buildMenuItem(
+    context,
+    index: 4,
+    icon: FeatherIcons.settings,
+    title: 'Settings',
+    onTap: () async {
+    Navigator.pop(context); // close drawer first
+    final result = await Navigator.push(
+    context,
+    MaterialPageRoute(builder: (_) => const SettingsScreen()),
+    );
+    if (result == 'chats_cleared' && widget.onSettingsClosed!() != null) {
+    await widget.onSettingsClosed!(); // ✅ call sync from HomeScreen
+    }}
                         ),
-                       /* _buildMenuItem(
-                          context,
-                          index: 5,
-                          icon: FeatherIcons.bell,
-                          title: 'Notifications',
-                          onTap: () {
-                            Navigator.pop(context);
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) =>
-                                const NotificationsScreen(),
-                              ),
-                            );
-                          },
-                        ), */
                       ]),
                     ),
                   ),
