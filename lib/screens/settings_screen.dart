@@ -156,7 +156,7 @@ class SettingsScreen extends ConsumerWidget {
                 ),
                 ListTile(
                   title: Text(
-                    'Notifications',
+                    'Proactive Notifications',
                     style: theme.textTheme.bodyLarge?.copyWith(
                       color: theme.colorScheme.onSurface,
                     ),

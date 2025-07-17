@@ -78,7 +78,7 @@ class PremiumPlansScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Get unlimited access to all features and priority support',
+                  'Get access to all features and priority support',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSurface.withOpacity(0.7),
                   ),
@@ -97,13 +97,12 @@ class PremiumPlansScreen extends StatelessWidget {
         _buildPlanCard(
           context,
           title: 'Monthly',
-          price: 'Rs. 500',
+          price: 'Rs. 499',
           period: 'per month',
           features: [
             '50 chats daily limit',
-            'Priority support',
-            'Advanced analytics',
-            'Custom themes',
+            '8 roast chats daily limit',
+            'Priority support'
           ],
           isPopular: false,
         ),
@@ -111,14 +110,13 @@ class PremiumPlansScreen extends StatelessWidget {
         _buildPlanCard(
           context,
           title: 'Annual',
-          price: 'Rs. 5,000',
+          price: 'Rs. 4,999',
           period: 'per year',
           features: [
             '50 chats daily limit',
+            '8 roast chats daily limit',
             'Priority support',
-            'All monthly features',
             '2 months free',
-            'Early access to new features',
           ],
           isPopular: true,
         ),

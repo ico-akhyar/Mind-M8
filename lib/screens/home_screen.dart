@@ -267,7 +267,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
 
     try {
       // Check message limits
-      final max = _isPremium ? 50 : 10;
+      final max = _isPremium ? 50 : 20;
       if (_dailyMessageCount >= max) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -339,7 +339,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       }
     });
 
-    final max = _isPremium ? 50 : 10;
+    final max = _isPremium ? 50 : 20;
     final dailyCanSend = _dailyMessageCount < max;
 
     return Scaffold(
@@ -454,7 +454,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
                       Text(
                         _isPremium
                             ? 'Premium: $_dailyMessageCount/50 today'
-                            : 'Free: $_dailyMessageCount/10 today',
+                            : 'Free: $_dailyMessageCount/20 today',
                         style: TextStyle(
                           fontSize: 12,
                           color: !dailyCanSend

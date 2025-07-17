@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/notification_prefs_provider.dart';
+import '../providers/proactive_provider.dart';
 
-class NotificationsScreen extends ConsumerWidget {
+class NotificationsScreen extends ConsumerStatefulWidget {
   const NotificationsScreen({super.key});
 
-  Future<void> _selectTime(BuildContext context, WidgetRef ref) async {
+  @override
+  ConsumerState<NotificationsScreen> createState() => _NotificationsScreenState();
+}
+
+class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
+  Future<void> _selectTime(BuildContext context) async {
     final currentTime = ref.read(notificationPrefsProvider).reminderTime;
     final theme = Theme.of(context);
     final TimeOfDay? picked = await showTimePicker(
@@ -31,7 +37,14 @@ class NotificationsScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final prefs = ref.read(notificationPrefsProvider);
+    ref.read(proactiveProvider.notifier).updateNotificationPreferences();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final prefs = ref.watch(notificationPrefsProvider);
 
@@ -52,22 +65,31 @@ class NotificationsScreen extends ConsumerWidget {
                   title: Text('Off', style: theme.textTheme.bodyLarge),
                   value: 0,
                   groupValue: prefs.mode,
-                  onChanged: (value) => ref.read(notificationPrefsProvider.notifier).setMode(value!),
+                  onChanged: (value) {
+                    ref.read(notificationPrefsProvider.notifier).setMode(value!);
+                    ref.read(proactiveProvider.notifier).updateNotificationPreferences();
+                  },
                 ),
                 Divider(color: theme.dividerTheme.color),
                 RadioListTile<int>(
                   title: Text('Mind M8 Smart Notification', style: theme.textTheme.bodyLarge),
                   value: 1,
                   groupValue: prefs.mode,
-                  onChanged: (value) => ref.read(notificationPrefsProvider.notifier).setMode(value!),
+                  onChanged: (value) {
+                    ref.read(notificationPrefsProvider.notifier).setMode(value!);
+                    ref.read(proactiveProvider.notifier).updateNotificationPreferences();
+                  },
                 ),
-                Divider(color: theme.dividerTheme.color),
-                RadioListTile<int>(
-                  title: Text('Custom', style: theme.textTheme.bodyLarge),
-                  value: 2,
-                  groupValue: prefs.mode,
-                  onChanged: (value) => ref.read(notificationPrefsProvider.notifier).setMode(value!),
-                ),
+                // Divider(color: theme.dividerTheme.color),
+                // RadioListTile<int>(
+                //   title: Text('Custom', style: theme.textTheme.bodyLarge),
+                //   value: 2,
+                //   groupValue: prefs.mode,
+                //   onChanged: (value) {
+                //     ref.read(notificationPrefsProvider.notifier).setMode(value!);
+                //     ref.read(proactiveProvider.notifier).updateNotificationPreferences();
+                //   },
+                // ),
               ],
             ),
           ),
@@ -88,7 +110,7 @@ class NotificationsScreen extends ConsumerWidget {
                       title: Text('Reminder Time', style: theme.textTheme.bodyLarge),
                       subtitle: Text(prefs.reminderTime.format(context), style: theme.textTheme.bodyMedium),
                       trailing: Icon(Icons.access_time, color: theme.colorScheme.onSurface),
-                      onTap: () => _selectTime(context, ref),
+                      onTap: () => _selectTime(context),
                     ),
                   ],
                 ],

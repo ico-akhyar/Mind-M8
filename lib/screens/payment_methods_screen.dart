@@ -46,7 +46,7 @@ class PaymentMethodsScreen extends StatelessWidget {
 
   Widget _buildPlanSummary(BuildContext context) {
     final theme = Theme.of(context);
-    final price = plan == 'Monthly' ? 'Rs. 500' : 'Rs. 5,000';
+    final price = plan == 'Monthly' ? 'Rs. 499' : 'Rs. 4,999';
 
     return Card(
       elevation: 0,

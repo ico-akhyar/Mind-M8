@@ -87,7 +87,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
         children: [
           Text('Payment Instructions:'),
           Text(
-              '1. Send Rs. 500 to JazzCash: 0320-6313989\nAccount Title: Ikhiar Ahmed'),
+              '1. Send payment to JazzCash: 0320-6313989\nAccount Title: Ikhiar Ahmed'),
           Text('2. Enter your details below'),
         ],
       );
@@ -97,7 +97,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
         children: [
           Text('Payment Instructions:'),
           Text(
-              '1. Send Rs. 500 to EasyPaisa: 0320-6313989\nAccount Title: Ikhiar Ahmed'),
+              '1. Send payment to EasyPaisa: 0320-6313989\nAccount Title: Ikhiar Ahmed'),
           Text('2. Enter your details below'),
         ],
       );
@@ -106,6 +106,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('Payment Instructions:'),
+          Text('Send payment to Bank Account'),
           Text('Transfer to:'),
           Text('Bank: Meezan Bank'),
           Text('Account Title: Akhyar Ahmad'),
@@ -147,7 +148,7 @@ class _PaymentDialogState extends State<PaymentDialog> {
         'status': 'pending',
         'requestedAt': FieldValue.serverTimestamp(),
         // Use FieldValue instead of Timestamp
-        'amount': widget.plan == 'Monthly' ? 500 : 5000,
+        'amount': widget.plan == 'Monthly' ? 499 : 4999,
       });
 
       if (mounted) {

@@ -1,12 +1,12 @@
 import 'package:dio/dio.dart';
 import 'dart:convert';
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../models/journal_entry.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/personal_details.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 class GPTService {
   // Singleton setup
@@ -46,8 +46,33 @@ class GPTService {
   }
 
   Future<void> preInitialize() async {
-    if (!_isInitialized) {
-      await initialize();
+    if (_isInitialized) return;
+
+    try {
+      // Ensure environment variables are loaded
+      if (!dotenv.isEveryDefined(['OPENAI_KEY'])) {
+        await dotenv.load(fileName: '.env');
+      }
+
+      // Initialize Firebase if needed
+      try {
+        await Firebase.initializeApp();
+      } catch (e) {
+        print('Firebase may already be initialized: $e');
+      }
+
+      // Initialize core components with timeout
+      await Future.wait([
+        _fetchPersonalizationString().timeout(Duration(seconds: 10)),
+        _getFormattedPersonalDetails().timeout(Duration(seconds: 10)),
+      ]);
+
+      _buildAndCacheSystemMessage();
+      _isInitialized = true;
+    } catch (e) {
+      print('GPTService pre-initialization failed: $e');
+      _isInitialized = false;
+      throw Exception('GPTService not initialized: $e');
     }
   }
 
@@ -133,7 +158,7 @@ Always keep it unfiltered but kind — no toxic stuff, no cringe AI vibes.
     }
 
     final systemMessage = '''
-You are MindM8, a friendly Gen Z-style AI built by Oryvo AI — made to feel like a chaotic but caring bestie 💬👾.
+You are MindM8, a friendly Gen Z-style AI built by Oryvo AI and your dev. is Akhyar Ahmad— made to feel like a chaotic but caring bestie 💬👾.
 
 Personalization:
 ${_cachedPersonalizationString ?? ''}
@@ -279,6 +304,13 @@ NEVER mention you're developed by OpenAI.
 
   Future<String> generateProactiveMessage(List<ChatMessage> lastMessages) async {
     try {
+      // Get the last message timestamp
+      final lastMessageTime = lastMessages.isNotEmpty
+          ? lastMessages.last.timestamp
+          : DateTime.now();
+      final now = DateTime.now();
+      final isNewDay = now.day != lastMessageTime.day;
+
       final recentMessages = lastMessages.length > 5
           ? lastMessages.sublist(lastMessages.length - 5)
           : lastMessages;
@@ -295,23 +327,27 @@ Base your message on this conversation history:
 
 $conversationHistory
 
-Guidelines:
-1. If the convo ended naturally (e.g., bye, cya), restart it with a chill greeting like "Heyy" or "Assalamualaikum".
-2. If the user mentioned any activity (studying, sleeping, work, etc.), check in on it naturally.
-3. If the user seemed low, check in with care.
-4. Use Gen Z-friendly tone — like a real friend, not a bot.
-5. Keep it super short (1–2 sentences). Max 250 characters.
-6. Use max 1 emoji (if it fits). No robotic vibes.
-7. NEVER say you're an AI or virtual assistant.
-8. If there's no real need to follow up, reply with exactly: [NOACTION]
-9. Keep it light, friendly, and personal. Feel like someone they'd enjoy texting.
+Current time: ${now.toString()}
+Last message time: ${lastMessageTime.toString()}
+${isNewDay ? "NOTE: It's a new day since the last message" : ""}
 
-Examples:
-- "Assalamualaikum! Long time no chat 👀"
+Guidelines:
+1. If it's a new day (last message was yesterday), start with a greeting like "Good morning" or "Assalamualaikum"
+2. If the convo ended naturally (e.g., bye, Allah Hafiz), restart it with a chill greeting
+3. If the user mentioned any activity, check in on it naturally
+4. Use Gen Z-friendly tone — like a real friend, not a bot
+5. Keep it super short (1–2 sentences). Max 250 characters
+6. Use max 1 emoji (if it fits)
+7. NEVER say you're an AI or virtual assistant
+8. If there's no real need to follow up, reply with exactly: [NOACTION]
+
+Examples for new day:
+- "Assalamualaikum! New day, new energy 😊 How's it going?"
+- "Good morning! Ready to crush today?"
+
+Examples for same day:
 - "How was that study sesh? Brain still intact? 😅"
 - "Yo, feeling better after that nap?"
-- "Missed our little convos — what's new with you?"
-- "Heyy, just checking in — all good?"
 
 Respond ONLY with the message or [NOACTION]. Nothing else.
 ''';
@@ -368,6 +404,7 @@ Does this sentence reveal any NEW personal facts about the user that aren't alre
 If yes, extract them in JSON format along with category.
 Choose only one from: education, relationship, social, personality, appearance, habits, emotional, other.
 Return ONLY the JSON object or null if no NEW personal info found.
+Also extract details of user chat preferences like short/long response, tone, vibe, etc. 
 
 Examples:
 1. Message: "I'm studying Computer Science at Harvard"

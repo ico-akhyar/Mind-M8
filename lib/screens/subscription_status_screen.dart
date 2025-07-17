@@ -9,10 +9,54 @@ import 'premium_plans_screen.dart';
 class SubscriptionStatusScreen extends ConsumerWidget {
   const SubscriptionStatusScreen({super.key});
 
+  Future<void> _checkAndResetMessageCount(String userId) async {
+    try {
+      // Step 1: Get real server time by writing + reading a timestamp
+      final serverTimeRef = FirebaseFirestore.instance.collection('server_time').doc('now');
+
+      // Set server timestamp
+      await serverTimeRef.set({'timestamp': FieldValue.serverTimestamp()});
+
+      // Get actual server timestamp
+      final serverTimeDoc = await serverTimeRef.get();
+      final Timestamp serverTimestamp = serverTimeDoc['timestamp'];
+      final DateTime serverNow = serverTimestamp.toDate();
+
+      // Calculate today's midnight (UTC-based)
+      final todayMidnight = DateTime(serverNow.year, serverNow.month, serverNow.day);
+
+      // Step 2: Get user data
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
+      final data = userDoc.data();
+      if (data == null) return;
+
+      final Timestamp? lastResetTs = data['lastMessageCountReset'];
+      final DateTime? lastReset = lastResetTs?.toDate();
+
+      // Step 3: If it's a new day, reset count
+      if (lastReset == null || lastReset.isBefore(todayMidnight)) {
+        await FirebaseFirestore.instance.collection('users').doc(userId).update({
+          'lastMessageCountReset': FieldValue.serverTimestamp(),
+          'dailyMessageCount': 0,
+        });
+      }
+    } catch (e) {
+      debugPrint('Error resetting message count: $e');
+    }
+  }
+
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authProvider);
     final theme = Theme.of(context);
+
+    if (user != null) {
+      // Check and reset message count when screen loads
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _checkAndResetMessageCount(user.uid);
+      });
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -41,187 +85,185 @@ class SubscriptionStatusScreen extends ConsumerWidget {
           final dailyMessageCount = userData['dailyMessageCount'] ?? 0;
           final lastReset = userData['lastMessageCountReset'] as Timestamp?;
 
-          final messageLimit = isPremium ? 50 : 10;
+          final messageLimit = isPremium ? 50 : 20;
           final remainingMessages = messageLimit - dailyMessageCount;
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(20),
             child: Column(
-                children: [
+              children: [
                 // Subscription Status Card
                 Card(
-                elevation: 4,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    children: [
-                  Row(
-                  children: [
-                  Icon(
-                  isPremium ? Icons.star : Icons.star_border,
-                    color: isPremium
-                        ? Colors.amber
-                        : theme.colorScheme.onSurface.withOpacity(0.5),
-                    size: 30,
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                  const SizedBox(width: 12),
-                  Text(
-                    isPremium ? 'Premium Member' : 'Free Plan',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              isPremium ? Icons.star : Icons.star_border,
+                              color: isPremium
+                                  ? Colors.amber
+                                  : theme.colorScheme.onSurface.withOpacity(0.5),
+                              size: 30,
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              isPremium ? 'Premium Member' : 'Free Plan',
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+                        if (isPremium) ...[
+                          _buildStatusItem(
+                            context,
+                            icon: Icons.credit_card,
+                            label: 'Plan',
+                            value: premiumPlan,
+                          ),
+                          const Divider(height: 30),
+                          _buildStatusItem(
+                            context,
+                            icon: Icons.calendar_today,
+                            label: 'Started On',
+                            value: premiumSince != null
+                                ? DateFormat('MMM d, y').format(premiumSince.toDate())
+                                : 'N/A',
+                          ),
+                          const Divider(height: 30),
+                          _buildStatusItem(
+                            context,
+                            icon: Icons.event_available,
+                            label: 'Expires On',
+                            value: premiumExpiry != null
+                                ? DateFormat('MMM d, y').format(premiumExpiry.toDate())
+                                : 'N/A',
+                          ),
+                          const Divider(height: 30),
+                          _buildStatusItem(
+                            context,
+                            icon: Icons.access_time,
+                            label: 'Time Remaining',
+                            value: premiumExpiry != null
+                                ? _formatRemainingTime(premiumExpiry.toDate())
+                                : 'N/A',
+                          ),
+                        ] else ...[
+                          Text(
+                            'Upgrade to unlock premium features',
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              color: theme.colorScheme.onSurface.withOpacity(0.7),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          FilledButton(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (context) => const PremiumPlansScreen()),
+                              );
+                            },
+                            child: const Text('Upgrade Now'),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
-                  ],
                 ),
                 const SizedBox(height: 20),
-                if (isPremium) ...[
-            _buildStatusItem(
-            context,
-            icon: Icons.credit_card,
-            label: 'Plan',
-            value: premiumPlan,
-          ),
-          const Divider(height: 30),
-          _buildStatusItem(
-          context,
-          icon: Icons.calendar_today,
-          label: 'Started On',
-          value: premiumSince != null
-          ? DateFormat('MMM d, y').format(premiumSince.toDate())
-              : 'N/A',
-          ),
-          const Divider(height: 30),
-          _buildStatusItem(
-          context,
-          icon: Icons.event_available,
-          label: 'Expires On',
-          value: premiumExpiry != null
-          ? DateFormat('MMM d, y').format(premiumExpiry.toDate())
-              : 'N/A',
-          ),
-          const Divider(height: 30),
-                  _buildStatusItem(
-                    context,
-                    icon: Icons.access_time,
-                    label: 'Time Remaining',
-                    value: premiumExpiry != null
-                        ? _formatRemainingTime(premiumExpiry.toDate())
-                        : 'N/A',
+
+                // Daily Usage Card
+                Card(
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
                   ),
-          ] else ...[
-          Text(
-          'Upgrade to unlock premium features',
-          style: theme.textTheme.bodyLarge?.copyWith(
-          color: theme.colorScheme.onSurface.withOpacity(0.7),
-          ),
-          ),
-          const SizedBox(height: 20),
-          FilledButton(
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const PremiumPlansScreen()),
-            );
-
-          },
-          child: const Text('Upgrade Now'),
-          ),
-                ],
-          ],
-          ),
-          ),
-          ),
-          const SizedBox(height: 20),
-
-          // Daily Usage Card
-          Card(
-          elevation: 4,
-          shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          ),
-          child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-          children: [
-          Text(
-          'Daily Usage',
-          style: theme.textTheme.titleLarge?.copyWith(
-          fontWeight: FontWeight.bold,
-          ),
-          ),
-          const SizedBox(height: 16),
-          LinearProgressIndicator(
-          value: dailyMessageCount / messageLimit,
-          backgroundColor: theme.colorScheme.surfaceVariant,
-          color: isPremium
-          ? theme.colorScheme.primary
-              : Colors.orange,
-          minHeight: 10,
-          borderRadius: BorderRadius.circular(5),
-          ),
-          const SizedBox(height: 16),
-          Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-          Text(
-          'Messages Used',
-          style: theme.textTheme.bodyMedium,
-          ),
-          Text(
-          '$dailyMessageCount/$messageLimit',
-          style: theme.textTheme.bodyMedium?.copyWith(
-          fontWeight: FontWeight.bold,
-          ),
-          ),
-          ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-          Text(
-          'Messages Remaining',
-          style: theme.textTheme.bodyMedium,
-          ),
-          Text(
-          '$remainingMessages',
-          style: theme.textTheme.bodyMedium?.copyWith(
-          fontWeight: FontWeight.bold,
-          color: remainingMessages > 0
-          ? theme.colorScheme.primary
-              : theme.colorScheme.error,
-          ),
-          ),
-          ],
-          ),
-          const SizedBox(height: 8),
-          if (lastReset != null) ...[
-          const Divider(height: 30),
-          _buildStatusItem(
-          context,
-          icon: Icons.refresh,
-          label: 'Resets On',
-          value: DateFormat('MMM d, y').format(
-          lastReset.toDate().add(const Duration(days: 1)),
-          ),
-          )
-          ],
-          ],
-          ),
-          ),
-          ),
-          ],
-          ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      children: [
+                        Text(
+                          'Daily Usage',
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        LinearProgressIndicator(
+                          value: dailyMessageCount / messageLimit,
+                          backgroundColor: theme.colorScheme.surfaceVariant,
+                          color: isPremium
+                              ? theme.colorScheme.primary
+                              : Colors.orange,
+                          minHeight: 10,
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Messages Used',
+                              style: theme.textTheme.bodyMedium,
+                            ),
+                            Text(
+                              '$dailyMessageCount/$messageLimit',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Messages Remaining',
+                              style: theme.textTheme.bodyMedium,
+                            ),
+                            Text(
+                              '$remainingMessages',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: remainingMessages > 0
+                                    ? theme.colorScheme.primary
+                                    : theme.colorScheme.error,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        if (lastReset != null) ...[
+                          const Divider(height: 30),
+                          _buildStatusItem(
+                            context,
+                            icon: Icons.refresh,
+                            label: 'Resets On',
+                            value: DateFormat('MMM d, y').format(
+                              lastReset.toDate().add(const Duration(days: 1)),
+                            ),
+                          )
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           );
         },
       ),
     );
   }
 
-  // Add this new helper method to the class:
   String _formatRemainingTime(DateTime expiryDate) {
     final now = DateTime.now();
     if (expiryDate.isBefore(now)) return 'Expired';

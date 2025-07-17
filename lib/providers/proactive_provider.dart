@@ -2,45 +2,164 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import '../services/notification_service.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
 import '../services/gpt_service.dart';
 import '../models/journal_entry.dart';
 import 'package:flutter/foundation.dart';
 import '../providers/notification_prefs_provider.dart';
+import 'package:firebase_core/firebase_core.dart';
 import '../providers/server_time_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter/material.dart';
+import '../models/notification_preferences.dart';
+import 'package:workmanager/workmanager.dart';
 
 final proactiveProvider = StateNotifierProvider<ProactiveNotifier, void>((ref) {
-  return ProactiveNotifier(ref);
+  return ProactiveNotifier.withRef(ref);
 });
 
-class ProactiveNotifier extends StateNotifier<void> {
-  final Ref ref;
+@pragma('vm:entry-point')
+Future<void> proactiveNotificationCallback() async {
+  debugPrint('🟡 [BACKGROUND TASK STARTED]');
+  try {
+    WidgetsFlutterBinding.ensureInitialized();
 
-  ProactiveNotifier(this.ref) : super(null);
+    // Initialize Firebase if needed
+    try {
+      await Firebase.initializeApp();
+      debugPrint('🟡 Firebase initialized in background');
+    } catch (e) {
+      debugPrint('🟡 Firebase already initialized');
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    debugPrint('SharedPreferences loaded');
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      debugPrint('No user logged in');
+      return;
+    }
+
+    // Get notification preferences
+    final prefsJson = prefs.getString('notification_preferences');
+    if (prefsJson == null) {
+      debugPrint('No notification preferences found');
+      return;
+    }
+
+    final prefsMap = json.decode(prefsJson) as Map<String, dynamic>;
+    final notificationPrefs = NotificationPreferences.fromMap(prefsMap);
+
+    if (notificationPrefs.mode != 1) {
+      debugPrint('Proactive mode is disabled');
+      return;
+    }
+
+    // Only proceed if the app has been in background for at least 30 minutes
+    final lastBackgroundTime = prefs.getInt('lastBackgroundTime');
+    if (lastBackgroundTime != null) {
+      final backgroundDuration = DateTime.now().difference(
+          DateTime.fromMillisecondsSinceEpoch(lastBackgroundTime));
+      if (backgroundDuration.inMinutes < 30) {
+        debugPrint('App hasn\'t been in background long enough');
+        return;
+      }
+    }
+
+    // Execute the actual proactive check
+    final notifier = ProactiveNotifier.manual(notificationPrefs);
+    await notifier.checkForMissedProactiveNotification();
+
+    debugPrint('=== PROACTIVE CALLBACK COMPLETED ===');
+  } catch (e, stack) {
+    debugPrint('Error in proactiveNotificationCallback: $e\n$stack');
+  }
+}
+
+class ProactiveNotifier extends StateNotifier<void> {
+  final Ref? ref;
+  final NotificationPreferences? injectedPrefs;
+  static final _notifications = FlutterLocalNotificationsPlugin();
+
+  // Improved flag system
+  bool _isCheckingForMissed = false;
+  DateTime? _lastCheckTime;
+  DateTime? _lastProactiveSentTime;
+  final Random _random = Random();
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseMessaging _fcm = FirebaseMessaging.instance;
 
-  Future<void> checkForProactiveMessage() async {
-    final user = _auth.currentUser;
-    if (user == null) return;
+  ProactiveNotifier.withRef(this.ref)
+      : injectedPrefs = null,
+        super(null) {
+    _initNotifications();
+  }
 
+  ProactiveNotifier.manual(this.injectedPrefs)
+      : ref = null,
+        super(null) {
+    _initNotifications();
+  }
+
+  NotificationPreferences get prefs {
+    if (injectedPrefs != null) return injectedPrefs!;
+    return ref!.read(notificationPrefsProvider);
+  }
+
+  Future<void> _initNotifications() async {
+    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const ios = DarwinInitializationSettings();
+    await _notifications.initialize(
+      const InitializationSettings(android: android, iOS: ios),
+    );
+  }
+
+  Future<void> _executeProactiveCheck(String userId) async {
     try {
-      final prefs = ref.read(notificationPrefsProvider);
+      debugPrint('Executing proactive check for user: $userId');
 
-      if (prefs.mode == 0) return;
-      if (prefs.mode != 1) return;
+      if (prefs.mode != 1) {
+        debugPrint('Proactive mode is disabled');
+        return;
+      }
+
+      // Initialize GPTService with retry
+      int attempts = 0;
+      bool initialized = false;
+
+      while (!initialized && attempts < 3) {
+        try {
+          await GPTService().preInitialize();
+          initialized = true;
+        } catch (e) {
+          debugPrint('Initialization attempt ${attempts + 1} failed: $e');
+          await Future.delayed(Duration(seconds: 2));
+          attempts++;
+        }
+      }
+
+      if (!initialized) {
+        throw Exception('Failed to initialize GPTService');
+      }
 
       final messages = await _firestore
           .collection('users')
-          .doc(user.uid)
+          .doc(userId)
           .collection('messages')
           .orderBy('timestamp', descending: true)
           .limit(5)
           .get();
 
-      if (messages.docs.isEmpty) return;
+      if (messages.docs.isEmpty) {
+        debugPrint('No messages found for user');
+        return;
+      }
 
       final lastMessages = messages.docs.map((doc) {
         final data = doc.data();
@@ -53,31 +172,31 @@ class ProactiveNotifier extends StateNotifier<void> {
         );
       }).toList();
 
-      if (prefs.mode == 1) {
-        final gptService = GPTService();
-        final response = await gptService.generateProactiveMessage(
-            lastMessages);
+      final gptService = GPTService();
+      final response = await gptService.generateProactiveMessage(lastMessages);
 
-        if (response.isEmpty || response == '[NOACTION]') return;
+      debugPrint('GPT response: $response');
 
-        await _sendProactiveNotification(response, user.uid);
+      if (response.isEmpty || response == '[NOACTION]') {
+        debugPrint('No proactive message generated');
+        return;
       }
+
+      await sendProactiveNotification(response, userId);
+      _lastProactiveSentTime = DateTime.now();
     } catch (e) {
-      debugPrint('Error in checkForProactiveMessage: $e');
+      debugPrint('Error in _executeProactiveCheck: $e');
+      // Auto-retry after delay if failed
+      await Future.delayed(Duration(minutes: 5));
+      rethrow;
     }
   }
 
-  Future<void> _sendProactiveNotification(String message, String userId) async {
+  Future<void> sendProactiveNotification(String message, String userId) async {
     try {
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(userId)
-          .get();
+      debugPrint('Attempting to send proactive message to Firestore');
 
-      final fcmToken = userDoc.get('fcmToken') as String?;
-      if (fcmToken == null) return;
-
-      await FirebaseFirestore.instance
+      final docRef = await _firestore
           .collection('users')
           .doc(userId)
           .collection('messages')
@@ -88,93 +207,126 @@ class ProactiveNotifier extends StateNotifier<void> {
         'timestamp': FieldValue.serverTimestamp(),
         'isProactive': true,
       });
+      debugPrint('Firestore write successful: ${docRef.id}');
 
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(userId)
-          .update({
+      await _firestore.collection('users').doc(userId).update({
         'lastProactive': FieldValue.serverTimestamp(),
       });
 
-      await NotificationService.sendProactiveNotificationpost(
-        token: fcmToken,
-        message: message,
+      // Send local notification
+      const android = AndroidNotificationDetails(
+        'proactive_channel',
+        'Proactive Messages',
+        importance: Importance.high,
+        priority: Priority.high,
+        enableVibration: true,
       );
+
+      await _notifications.show(
+        0,
+        'MindM8 💭',
+        message,
+        const NotificationDetails(
+          android: android,
+          iOS: DarwinNotificationDetails(),
+        ),
+      );
+      debugPrint('Local notification shown');
+
     } catch (e, stack) {
-      debugPrint('Error: $e\n$stack');
+      debugPrint('Error in _sendProactiveNotification: $e\n$stack');
     }
   }
 
-  Future<void> scheduleProactiveCheck() async {
-    print("shedule");
-    final user = _auth.currentUser;
-    if (user == null) {
-      print("no user");
-      return;
-    }
+  Future<void> appWentToBackground() async {
+    debugPrint('🟢 [1] APP WENT TO BACKGROUND');
 
-    try {
-      final prefs = ref.read(notificationPrefsProvider);
+    if (prefs.mode != 1) return;
 
-      if (prefs.mode != 1) {  print("pref mode not matched ${prefs.mode}"); return;}
-      if (prefs.mode == 1) { print("sheduling");
-        final randomDelay = Duration(minutes: 15 + (DateTime
-            .now()
-            .millisecond % 45));
-        await Future.delayed(randomDelay);
-        if (_auth.currentUser != null) {
-          await checkForProactiveMessage();
-        }
-        print("sheduled");
-      }
-    } catch (e) {
-      debugPrint('Error in scheduleProactiveCheck: $e');
-    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final sharedPrefs = await SharedPreferences.getInstance();
+    await sharedPrefs.setInt('lastBackgroundTime', now);
+
+    debugPrint('🟢 [2] Background time saved, no immediate task scheduled');
+  }
+
+  Future<void> appCameToForeground() async {
+    final sharedPrefs = await SharedPreferences.getInstance();
+    await sharedPrefs.remove('lastBackgroundTime');
+
+    // Cancel both tasks
+    await Workmanager().cancelByTag("immediateProactiveCheck");
+    await Workmanager().cancelByTag("periodicProactiveCheck");
   }
 
   Future<bool> checkForMissedProactiveNotification() async {
-    final user = _auth.currentUser;
-    if (user == null) return false;
+    // Cooldown check - skip if we checked recently
+    if (_isCheckingForMissed ||
+        (_lastCheckTime != null &&
+            DateTime.now().difference(_lastCheckTime!) < Duration(minutes: 10))) {
+      debugPrint('Skipping check - too recent');
+      return false;
+    }
+
+    _isCheckingForMissed = true;
+    _lastCheckTime = DateTime.now();
 
     try {
-      final userDoc = await _firestore
-          .collection('users')
-          .doc(user.uid)
-          .get();
+      final user = _auth.currentUser;
+      if (user == null) return false;
 
+      final userDoc = await _firestore.collection('users').doc(user.uid).get();
       if (!userDoc.exists) return false;
 
-      final userData = userDoc.data() as Map<String, dynamic>?;
-      final prefs = ref.read(notificationPrefsProvider);
+      if (prefs.mode != 1) return false;
 
-      if(prefs.mode != 1) {  print("pref mode not matched ${prefs.mode}"); return false;}
+      final serverTime = await _getServerTime();
+      final todayMidnight = DateTime(serverTime.year, serverTime.month, serverTime.day);
 
-      if (prefs.mode == 1) {
-        final bool shouldSendNotification;
-        final serverTime = await _getServerTime();
+      final lastProactive = userDoc.data()?['lastProactive'] as Timestamp?;
 
-        if (userData == null || !userData.containsKey('lastProactive')) {
-          shouldSendNotification = true;
-        } else {
-          final lastProactive = userDoc.get('lastProactive') as Timestamp?;
-          shouldSendNotification = lastProactive == null ||
-              serverTime.difference(lastProactive.toDate()).inMinutes > 120;
-        }
-
-        if (shouldSendNotification) {
-          await checkForProactiveMessage();
-          return true;
-        }
+      // New day check (always send)
+      if (lastProactive == null || lastProactive.toDate().isBefore(todayMidnight)) {
+        debugPrint('New day - sending proactive message');
+        await _executeProactiveCheck(user.uid);
+        return true;
       }
+
+      // Randomized interval check (60-240 minutes)
+      final minutesSinceLast = serverTime.difference(lastProactive.toDate()).inMinutes;
+      final requiredWait = _getRandomInterval();
+      debugPrint('Minutes since last: $minutesSinceLast (needs $requiredWait)');
+
+      if (minutesSinceLast >= requiredWait) {
+        debugPrint('Random interval reached - sending proactive message');
+        await _executeProactiveCheck(user.uid);
+        return true;
+      }
+
       return false;
     } catch (e) {
-      debugPrint('Error in checkForMissedProactiveNotification: $e');
+      debugPrint('Error in checkForMissed: $e');
       return false;
+    } finally {
+      _isCheckingForMissed = false;
+    }
+  }
+
+  int _getRandomInterval() {
+    return 60 + _random.nextInt(180); // 60-240 minute range
+  }
+
+  Future<void> updateNotificationPreferences() async {
+    if (prefs.mode != 1) {
+      final sharedPrefs = await SharedPreferences.getInstance();
+      await sharedPrefs.remove('lastBackgroundTime');
+      await Workmanager().cancelByTag("immediateProactiveCheck");
     }
   }
 
   Future<DateTime> _getServerTime() async {
-    final offset = ref.read(serverTimeOffsetProvider);
+    if (ref == null) return DateTime.now();
+    final offset = ref!.read(serverTimeOffsetProvider);
     return DateTime.now().add(offset);
   }
 }

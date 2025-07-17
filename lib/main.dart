@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:workmanager/workmanager.dart';
 import 'screens/login_screen.dart';
 import 'theme/app_theme.dart';
 import 'screens/home_screen.dart';
@@ -13,11 +15,62 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'services/time_service.dart';
 import 'services/gpt_service.dart';
+import 'services/background_tasks.dart'; // wherever you save that file
+import 'dart:io'; // Add this import for Platform class
 
 /// ✅ Auth Provider (Reactive)
 final authProvider = StreamProvider<User?>((ref) {
   return FirebaseAuth.instance.authStateChanges();
 });
+
+@pragma('vm:entry-point')
+Future<bool> backgroundTaskDispatcher(String task, Map<String, dynamic>? inputData) async {
+  try {
+    WidgetsFlutterBinding.ensureInitialized();
+    try {
+      await Firebase.initializeApp();
+    } catch (e) {
+      debugPrint('Firebase already initialized in isolate: $e');
+    }
+    await proactiveNotificationCallback();
+    return true;
+  } catch (e) {
+    debugPrint('WorkManager error: $e');
+    return false;
+  }
+}
+
+
+Future<void> initializeWorkManager() async {
+  await Workmanager().initialize(
+    callbackDispatcher,
+    isInDebugMode: true,
+  );
+
+  if (Platform.isAndroid) {
+    await Workmanager().cancelAll();
+
+    // Schedule periodic checks every 6 hours
+    await Workmanager().registerPeriodicTask(
+      "periodicProactiveCheck",
+      "proactiveCheckTask",
+      frequency: Duration(hours: 6),
+      constraints: Constraints(
+        networkType: NetworkType.connected,
+      ),
+      existingWorkPolicy: ExistingWorkPolicy.replace,
+    );
+
+    debugPrint("✅ WorkManager initialized with periodic task");
+  }
+}
+
+class MyApp extends ConsumerStatefulWidget {
+  const MyApp({super.key});
+
+  @override
+  ConsumerState<MyApp> createState() => _MyAppState();
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,6 +81,9 @@ void main() async {
 
     // Initialize Firebase
     await Firebase.initializeApp();
+
+    // Initialize WorkManager
+    await initializeWorkManager();
 
     // Set up FCM token refresh listener
     FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
@@ -78,13 +134,6 @@ void main() async {
   }
 }
 
-class MyApp extends ConsumerStatefulWidget {
-  const MyApp({super.key});
-
-  @override
-  ConsumerState<MyApp> createState() => _MyAppState();
-}
-
 class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
   @override
   void initState() {
@@ -104,7 +153,11 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
     if (user == null) return;
 
     if (state == AppLifecycleState.paused) {
-      ref.read(proactiveProvider.notifier).scheduleProactiveCheck();
+      // App went to background
+      ref.read(proactiveProvider.notifier).appWentToBackground();
+    } else if (state == AppLifecycleState.resumed) {
+      // App came to foreground
+      ref.read(proactiveProvider.notifier).appCameToForeground();
     }
   }
 

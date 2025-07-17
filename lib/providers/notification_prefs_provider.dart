@@ -29,10 +29,23 @@ class NotificationPrefsNotifier extends StateNotifier<NotificationPreferences> {
       if (jsonString != null) {
         final map = json.decode(jsonString) as Map<String, dynamic>;
         state = NotificationPreferences.fromMap(map);
+      } else {
+        // Initialize with default proactive mode ON
+        state = NotificationPreferences(
+          mode: 1,  // Default to proactive mode
+          dailyReminder: true,
+          reminderTime: const TimeOfDay(hour: 20, minute: 0),
+        );
+        await _savePreferences();
       }
     } catch (e) {
       debugPrint('Error loading notification prefs: $e');
-      state = _defaultPrefs();
+      // Initialize with proactive mode ON by default
+      state = NotificationPreferences(
+        mode: 1,
+        dailyReminder: true,
+        reminderTime: const TimeOfDay(hour: 20, minute: 0),
+      );
       await _savePreferences();
     }
   }

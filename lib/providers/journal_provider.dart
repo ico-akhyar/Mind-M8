@@ -216,13 +216,13 @@ class ChatNotifier extends StateNotifier<List<ChatMessage>> {
           'lastMessageCountReset': FieldValue.serverTimestamp(),
           'dailyMessageCount': 0,
         });
-        return MessageLimitInfo(0, isPremium ? 50 : 10);
+        return MessageLimitInfo(0, isPremium ? 50 : 20);
       }
 
-      return MessageLimitInfo(count, isPremium ? 50 : 10);
+      return MessageLimitInfo(count, isPremium ? 50 : 20);
     } catch (e) {
       print('Error getting message count: $e');
-      return MessageLimitInfo(0, isPremium ? 50 : 10);
+      return MessageLimitInfo(0, isPremium ? 50 : 20);
     }
   }
 
